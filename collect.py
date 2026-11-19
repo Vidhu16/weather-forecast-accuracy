@@ -5,6 +5,7 @@ overwritten. Failed API calls are logged in the api_failures table.
 """
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 
 import psycopg2
@@ -12,6 +13,8 @@ import requests
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 SLOT_HOURS = 6  # must match the cron schedule
+MAX_ATTEMPTS = 3  # tries per city before it is logged as a failure
+RETRY_WAIT_SECONDS = 5  # wait grows each time: 5s, then 10s
 
 
 def expected_slot(now):
@@ -30,9 +33,18 @@ def fetch_city(lat, lon):
         "forecast_days": 8,  # today (lead 0) plus the next 7 days
         "timezone": "auto",
     }
-    response = requests.get(API_URL, params=params, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    last_error = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = requests.get(API_URL, params=params, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as exc:  # timeout, 429, 5xx, network
+            last_error = exc
+            print(f"  attempt {attempt}/{MAX_ATTEMPTS} failed: {type(exc).__name__}")
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(RETRY_WAIT_SECONDS * attempt)
+    raise last_error  # all attempts failed: the caller logs it in api_failures
 
 
 def save_city(cur, run_id, city_id, data):
@@ -94,7 +106,7 @@ def main():
         except Exception as exc:  # network error, bad status, missing field
             conn.rollback()
             failures += 1
-            message = f"{type(exc).__name__}: {exc}"
+            message = f"{type(exc).__name__} (after {MAX_ATTEMPTS} attempts): {exc}"
             cur.execute(
                 "INSERT INTO api_failures (run_id, city_id, error_message) "
                 "VALUES (%s, %s, %s)",

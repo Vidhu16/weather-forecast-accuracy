@@ -14,7 +14,9 @@ import requests
 API_URL = "https://api.open-meteo.com/v1/forecast"
 SLOT_HOURS = 6  # must match the cron schedule
 MAX_ATTEMPTS = 3  # tries per city before it is logged as a failure
-RETRY_WAIT_SECONDS = 5  # wait grows each time: 5s, then 10s
+RETRY_WAIT_SECONDS = 10  # wait grows each time: 10s, then 20s
+TIMEOUT_SECONDS = 60  # how long to wait for one API answer
+CITY_PAUSE_SECONDS = 3  # pause between cities so we do not send a burst
 
 
 def expected_slot(now):
@@ -36,7 +38,7 @@ def fetch_city(lat, lon):
     last_error = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            response = requests.get(API_URL, params=params, timeout=30)
+            response = requests.get(API_URL, params=params, timeout=TIMEOUT_SECONDS)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:  # timeout, 429, 5xx, network
@@ -97,7 +99,9 @@ def main():
     cities = cur.fetchall()
 
     failures = 0
-    for city_id, name, lat, lon in cities:
+    for index, (city_id, name, lat, lon) in enumerate(cities):
+        if index > 0:
+            time.sleep(CITY_PAUSE_SECONDS)
         try:
             data = fetch_city(lat, lon)
             save_city(cur, run_id, city_id, data)

@@ -16,7 +16,9 @@ CREATE TABLE runs (
     finished_at   TIMESTAMPTZ,
     status        TEXT NOT NULL DEFAULT 'started'
                   CHECK (status IN ('started', 'success', 'partial', 'failed')),
-    expected_slot TIMESTAMPTZ NOT NULL  -- the 6-hour slot this run belongs to
+    expected_slot TIMESTAMPTZ NOT NULL, -- the 6-hour slot this run belongs to
+    trigger_type  TEXT NOT NULL DEFAULT 'workflow_dispatch'
+                  -- schedule, workflow_dispatch (manual) or local
 );
 
 -- Every forecast ever collected. One row per run, city and target date.

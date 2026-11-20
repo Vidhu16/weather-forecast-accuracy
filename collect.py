@@ -87,10 +87,13 @@ def main():
     cur = conn.cursor()
 
     now = datetime.now(timezone.utc)
+    # GitHub sets GITHUB_EVENT_NAME to "schedule" or "workflow_dispatch" (manual);
+    # running on a laptop has no such variable, so it is recorded as "local".
+    trigger_type = os.environ.get("GITHUB_EVENT_NAME", "local")
     cur.execute(
-        "INSERT INTO runs (started_at, status, expected_slot) "
-        "VALUES (%s, 'started', %s) RETURNING id",
-        (now, expected_slot(now)),
+        "INSERT INTO runs (started_at, status, expected_slot, trigger_type) "
+        "VALUES (%s, 'started', %s, %s) RETURNING id",
+        (now, expected_slot(now), trigger_type),
     )
     run_id = cur.fetchone()[0]
     conn.commit()  # the run is recorded even if everything below fails

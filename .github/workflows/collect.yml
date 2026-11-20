@@ -1,9 +1,12 @@
+# Save this file as .github/workflows/collect.yml in your repo
 name: Collect weather data
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
-  workflow_dispatch:
+    # Every 6 hours at minute 17 (UTC): 00:17, 06:17, 12:17, 18:17.
+    # Round-hour schedules are the most delayed on GitHub, so 17 is used on purpose.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:         # lets you run it manually from the Actions tab
 
 jobs:
   collect:

@@ -1,9 +1,12 @@
 """Save the actual daily weather for every city in the actuals table.
 
-Source: the Open-Meteo historical weather API (ERA5 reanalysis). It is a
-model-based estimate of what happened, not a weather-station reading, and it
-trails real time by about 5 days. Only days not already saved are added, so
-running it twice is safe.
+Source: the Open-Meteo forecast API with past_days, which returns the weather
+model's own analysis of recent days. It is a model-based estimate of what
+happened, not a weather-station reading, and it has almost no delay, so
+yesterday's weather is available today. Because it comes from the same
+modelling system as the forecasts, errors may look slightly smaller than
+against independent station data (mention this as a limitation).
+Only days not already saved are added, so running it twice is safe.
 
 Usage:
     export DATABASE_URL="postgresql://..."
@@ -14,8 +17,10 @@ import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 
-ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
-DELAY_DAYS = 5          # the archive lags real time by about this many days
+API_URL = "https://api.open-meteo.com/v1/forecast"
+SOURCE = "open-meteo-analysis"
+DELAY_DAYS = 1          # only days that have fully ended are saved (yesterday and earlier)
+MAX_PAST_DAYS = 92      # the API allows at most 92 past days
 MAX_ATTEMPTS = 3
 RETRY_WAIT_SECONDS = 10
 TIMEOUT_SECONDS = 60
@@ -27,7 +32,7 @@ CITY_PAUSE_SECONDS = 3
 def parse_daily(payload):
     """Turn an API answer into [(date, temp_max, temp_min, precipitation), ...].
 
-    Days where every value is missing are skipped: the archive has not caught up.
+    Days where every value is missing are skipped.
     """
     daily = payload["daily"]
     rows = []
@@ -42,7 +47,7 @@ def parse_daily(payload):
 
 
 def date_window(first_target, today, delay_days=DELAY_DAYS):
-    """First and last day to request, or None if the archive has nothing yet."""
+    """First and last day to keep, or None if no full day has ended yet."""
     end = today - timedelta(days=delay_days)
     if first_target > end:
         return None
@@ -51,18 +56,18 @@ def date_window(first_target, today, delay_days=DELAY_DAYS):
 
 # ---------- network and database ----------
 
-def fetch_city(lat, lon, start, end):
+def fetch_city(lat, lon, past_days):
     import requests
     params = {
         "latitude": lat, "longitude": lon,
-        "start_date": start.isoformat(), "end_date": end.isoformat(),
+        "past_days": past_days, "forecast_days": 1,
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
         "timezone": "auto",
     }
     last_error = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            response = requests.get(ARCHIVE_URL, params=params, timeout=TIMEOUT_SECONDS)
+            response = requests.get(API_URL, params=params, timeout=TIMEOUT_SECONDS)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
@@ -93,13 +98,15 @@ def main():
             if window is None:
                 print(f"SKIP  {name}: no forecast days old enough yet")
                 continue
-            rows = parse_daily(fetch_city(lat, lon, *window))
+            past_days = min(MAX_PAST_DAYS, (today - window[0]).days + 1)
+            rows = [r for r in parse_daily(fetch_city(lat, lon, past_days))
+                    if window[0] <= r[0] <= window[1]]
             added = 0
             for obs_date, tmax, tmin, precip in rows:
                 cur.execute(
-                    "INSERT INTO actuals (city_id, obs_date, temp_max, temp_min, precipitation) "
-                    "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (city_id, obs_date) DO NOTHING",
-                    (city_id, obs_date, tmax, tmin, precip))
+                    "INSERT INTO actuals (city_id, obs_date, temp_max, temp_min, precipitation, source) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (city_id, obs_date) DO NOTHING",
+                    (city_id, obs_date, tmax, tmin, precip, SOURCE))
                 added += cur.rowcount
             conn.commit()
             print(f"OK    {name}: {added} new days ({window[0]} to {window[1]})")

@@ -120,7 +120,7 @@ def test_parse_daily_skips_days_the_archive_has_not_reached():
     assert fetch_actuals.parse_daily(payload) == [(date(2026, 11, 19), 31.2, 24.0, 0.4)]
 
 
-def test_date_window_respects_archive_delay():
+def test_date_window_keeps_only_days_that_have_ended():
     today = date(2026, 11, 26)
-    assert fetch_actuals.date_window(date(2026, 11, 19), today) == (date(2026, 11, 19), date(2026, 11, 21))
-    assert fetch_actuals.date_window(date(2026, 11, 24), today) is None
+    assert fetch_actuals.date_window(date(2026, 11, 19), today) == (date(2026, 11, 19), date(2026, 11, 25))
+    assert fetch_actuals.date_window(date(2026, 11, 26), today) is None   # today is not over yet

@@ -22,6 +22,16 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python collect.py
+      - name: Collect forecasts and current weather
+        run: python collect.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # Stores what actually happened on days that have ended. Runs even if the step above
+      # failed, and a failure here never hides a successful collection.
+      - name: Fetch actual weather for past days
+        if: always()
+        continue-on-error: true
+        run: python fetch_actuals.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

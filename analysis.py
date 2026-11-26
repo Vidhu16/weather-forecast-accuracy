@@ -174,8 +174,7 @@ def main():
     df = pd.DataFrame(cur.fetchall(), columns=columns)
     conn.close()
     if df.empty:
-        print("No forecast-vs-actual pairs yet. Run fetch_actuals.py first, and wait until "
-              "the archive has caught up with your forecast dates (about 5 days).")
+        print("No forecast-vs-actual pairs yet. Run fetch_actuals.py first.")
         return
     run_report(df)
 
